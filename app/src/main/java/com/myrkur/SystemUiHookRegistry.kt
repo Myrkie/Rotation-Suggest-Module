@@ -1,5 +1,7 @@
 package com.myrkur
 
+import android.content.Context
+import android.os.Binder
 import android.os.Handler
 import android.util.Log
 import de.robv.android.xposed.XposedBridge
@@ -145,12 +147,72 @@ class SystemUiHookRegistry {
                 }
             )
         }
+        /**
+         * Hooks RotationButtonController#onNavigationBarWindowVisibilityChange(Boolean).
+         * Summary: Adds a long-press listener to the rotation button to open the system keyboard picker.
+         *          Uses a minimal IInputMethodClient stub to call the internal showInputMethodPickerFromSystem method.
+         */
+        fun addLongPressKeyboardPicker(): ReflectionMethodHook {
+            return ReflectionMethodHook(
+                hookName = "addLongPressKeyboardPicker()",
+                className = "com.android.systemui.navigationbar.RotationButtonController",
+                methodName = "onNavigationBarWindowVisibilityChange",
+                parameterTypes = arrayOf(Boolean::class.javaPrimitiveType!!),
+                afterHook = { param ->
+                    try {
+                        val controller = param.thisObject
+                        val rotationButton = XposedHelpers.getObjectField(controller, "mRotationButton")
+
+                        val view = XposedHelpers.callMethod(rotationButton, "getCurrentView") as? android.view.View
+                            ?: return@ReflectionMethodHook
+
+                        view.setOnLongClickListener {
+                            try {
+                                val context = view.context
+                                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE)
+                                val service = XposedHelpers.getObjectField(imm, "mService")
+
+                                val stubClass = XposedHelpers.findClass(
+                                    "com.android.internal.view.IInputMethodClient\$Stub",
+                                    null
+                                )
+                                val client = XposedHelpers.callStaticMethod(stubClass, "asInterface",
+                                    Binder()
+                                )
+
+                                XposedHelpers.callMethod(
+                                    service,
+                                    "showInputMethodPickerFromSystem",
+                                    client,
+                                    0,
+                                    0
+                                )
+
+                                Log.d("RotationSuggest", "Keyboard picker opened via long press")
+                                true
+                            } catch (e: Throwable) {
+                                Log.e("RotationSuggest", "Error showing IM picker", e)
+                                XposedBridge.log(e)
+                                false
+                            }
+                        }
+
+                    } catch (e: Throwable) {
+                        Log.e("RotationSuggest", "Error attaching long press", e)
+                        XposedBridge.log(e)
+                    }
+                }
+            )
+        }
+
+
         fun allHooks(): List<ReflectionMethodHook> = listOf(
             disableRotateSuggestion(),
             disableRotationButtonTimeout(),
             blockCanAnimateWhenCalledByRotationContext(),
             hideSuggestionWhenNavbarHidden(),
-            overrideRotateSuggestionLogic()
+            overrideRotateSuggestionLogic(),
+            addLongPressKeyboardPicker()
         )
     }
 }
