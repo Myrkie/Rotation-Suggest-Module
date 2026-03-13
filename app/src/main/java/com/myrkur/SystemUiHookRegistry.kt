@@ -205,6 +205,52 @@ class SystemUiHookRegistry {
             )
         }
 
+        fun recentsLongPressRestartQuickstep(): ReflectionMethodHook {
+            return ReflectionMethodHook(
+                hookName = "recentsLongPressRestartQuickstep()",
+                className = "com.android.systemui.navigationbar.buttons.KeyButtonView",
+                methodName = "onTouchEvent",
+                parameterTypes = arrayOf(android.view.MotionEvent::class.java),
+                beforeHook = { param ->
+                    try {
+                        val view = param.thisObject as android.view.View
+                        val event = param.args[0] as android.view.MotionEvent
+                        val context = view.context
+
+                        val recentsId = context.resources.getIdentifier(
+                            "recent_apps",
+                            "id",
+                            "com.android.systemui"
+                        )
+
+                        if (view.id != recentsId) return@ReflectionMethodHook
+
+                        if (event.action == android.view.MotionEvent.ACTION_DOWN) {
+                            view.postDelayed({
+                                if (view.isPressed) {
+                                    try {
+                                        Runtime.getRuntime().exec(arrayOf("su", "-c", "pkill launcher3"))
+
+                                        view.performHapticFeedback(
+                                            android.view.HapticFeedbackConstants.LONG_PRESS
+                                        )
+
+                                        Log.d("RotationSuggest", "Restarting QuickStep")
+                                    } catch (e: Throwable) {
+                                        Log.e("RotationSuggest", "Error restarting QuickStep", e)
+                                        XposedBridge.log(e)
+                                    }
+                                }
+                            }, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                        }
+
+                    } catch (e: Throwable) {
+                        Log.e("RotationSuggest", "Error attaching long press RestartQuickstep", e)
+                        XposedBridge.log(e)
+                    }
+                }
+            )
+        }
 
         fun allHooks(): List<ReflectionMethodHook> = listOf(
             disableRotateSuggestion(),
@@ -212,7 +258,8 @@ class SystemUiHookRegistry {
             blockCanAnimateWhenCalledByRotationContext(),
             hideSuggestionWhenNavbarHidden(),
             overrideRotateSuggestionLogic(),
-            addLongPressKeyboardPicker()
+            addLongPressKeyboardPicker(),
+            recentsLongPressRestartQuickstep()
         )
     }
 }
